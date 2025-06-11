@@ -1,0 +1,461 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rebuild Civilization Adventure</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+            margin: 20px;
+        }
+        #gameArea {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #output, #chatOutput {
+            margin-top: 20px;
+            text-align: left;
+            line-height: 1.6;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+        #status {
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        #chatInput {
+            margin-top: 10px;
+            width: 70%;
+            padding: 8px;
+            font-size: 14px;
+        }
+        #chatSend {
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+        #startScreen {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameArea">
+        <h1>Rebuild Civilization Adventure</h1>
+        <div id="startScreen">
+            <h3>Choose Your Role</h3>
+            <p>Are you a man (the last man on Earth) or a woman (one of the last women or island women)?</p>
+            <button onclick="startGame('male')">Play as Male (Last Man)</button>
+            <button onclick="startGame('female')">Play as Female (Last Woman)</button>
+        </div>
+        <div id="gameContent" style="display: none;">
+            <div id="status"></div>
+            <div id="output"></div>
+            <div id="choices"></div>
+            <h3>Chat with Others</h3>
+            <div id="chatOutput"></div>
+            <input type="text" id="chatInput" placeholder="Type message to others...">
+            <button id="chatSend">Send</button>
+        </div>
+    </div>
+    <script>
+        const initialCompanions = [
+            { name: "Aria", trait: "Resourceful", desc: "A strikingly beautiful woman with sharp green eyes and a knack for finding resources." },
+            { name: "Lila", trait: "Healer", desc: "A compassionate beauty with golden hair, skilled in medicine." },
+            { name: "Sofia", trait: "Builder", desc: "A strong-willed woman with radiant features, adept at construction." },
+            { name: "Maya", trait: "Farmer", desc: "A warm-hearted beauty with a talent for growing crops." },
+            { name: "Elisa", trait: "Leader", desc: "A charismatic woman with stunning looks and natural leadership." },
+            { name: "Zoe", trait: "Scout", desc: "An adventurous beauty with keen senses for exploration." },
+            { name: "Nia", trait: "Teacher", desc: "A wise and elegant woman, perfect for educating the next generation." },
+            { name: "Tara", trait: "Engineer", desc: "A brilliant beauty with a mind for crafting tools." },
+            { name: "Rose", trait: "Diplomat", desc: "A charming woman with a knack for resolving conflicts." },
+            { name: "Luna", trait: "Hunter", desc: "A fierce beauty, skilled in hunting and survival." }
+        ];
+
+        const islandWomen = [
+            { name: "Sylvara", power: "Elemental", desc: "A radiant woman who commands wind and water, seeking a child to inherit her powers." },
+            { name: "Eryndra", power: "Telepathy", desc: "A mesmerizing beauty who reads minds, desiring a legacy." },
+            { name: "Vionica", power: "Healing", desc: "A glowing woman who mends wounds instantly, yearning for children." },
+            { name: "Zyra", power: "Strength", desc: "A powerful beauty with unmatched strength, eager to pass it on." },
+            { name: "Luneth", power: "Vision", desc: "A mystic with foresight, seeking to birth a seer." }
+        ];
+
+        const superheroAnimals = [
+            { name: "Thunderhawk", power: "Flight", desc: "A majestic hawk with lightning-fast wings, aiding in scouting." },
+            { name: "Ironbear", power: "Strength", desc: "A massive bear with unbreakable fur, perfect for defense." }
+        ];
+
+        const hybridAnimals = [
+            { name: "Griffon-Wolf", traits: ["Flight", "Speed"], desc: "A wolf with eagle wings, loyal and swift." },
+            { name: "Serpent-Panther", traits: ["Stealth", "Venom"], desc: "A panther with a snake's tail, deadly and silent." }
+        ];
+
+        const monsters = [
+            { name: "Chimera", threat: 30, desc: "A fire-breathing beast with lion, goat, and snake heads, from ancient Greek texts." },
+            { name: "Rakshasa", threat: 25, desc: "A shape-shifting demon from Hindu mythology, cunning and dangerous." }
+        ];
+
+        let gameState = {
+            day: 1,
+            year: 1,
+            playerAge: 20,
+            food: 50,
+            shelter: 20,
+            population: 11, // 10 women + player (male or female)
+            morale: 50,
+            technology: 0,
+            children: [],
+            islandDiscovered: false,
+            playerName: "",
+            playerGender: "",
+            playerTrait: "",
+            isAlive: true,
+            pets: [],
+            trees: 10,
+            exploredAreas: []
+        };
+
+        function startGame(gender) {
+            gameState.playerGender = gender;
+            if (gender === 'male') {
+                gameState.playerName = "Founder";
+                gameState.playerTrait = "Leader";
+                gameState.population = 11; // 10 women + male player
+                displayMessage("You are the last man on Earth, leading ten remarkable women to rebuild civilization.");
+                initialCompanions.forEach(c => displayMessage(`${c.name} (${c.trait}): ${c.desc}`));
+            } else {
+                // Female player: choose randomly from initialCompanions or islandWomen (if discovered)
+                const womenPool = gameState.islandDiscovered ? [...initialCompanions, ...islandWomen] : initialCompanions;
+                const playerCharacter = womenPool[Math.floor(Math.random() * womenPool.length)];
+                gameState.playerName = playerCharacter.name;
+                gameState.playerTrait = playerCharacter.power || playerCharacter.trait;
+                // Remove chosen character from companions/islandWomen
+                if (initialCompanions.includes(playerCharacter)) {
+                    initialCompanions.splice(initialCompanions.indexOf(playerCharacter), 1);
+                } else if (islandWomen.includes(playerCharacter)) {
+                    islandWomen.splice(islandWomen.indexOf(playerCharacter), 1);
+                }
+                gameState.population = 11; // 9 remaining women + female player + last man (NPC)
+                displayMessage(`You are ${playerCharacter.name}, a ${playerCharacter.trait || playerCharacter.power} woman. You join nine other women and the last man to rebuild civilization.`);
+                initialCompanions.forEach(c => displayMessage(`${c.name} (${c.trait}): ${c.desc}`));
+                if (gameState.islandDiscovered) {
+                    islandWomen.forEach(w => displayMessage(`${w.name} (${w.power}): ${w.desc}`));
+                }
+                displayMessage("The Last Man (Leader): A determined survivor guiding the group.");
+            }
+            document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('gameContent').style.display = 'block';
+            superheroAnimals.forEach(a => displayMessage(`${a.name} (${a.power}): ${a.desc}`));
+            displayChatMessage("Welcome to the survivor network. Share your plans!");
+            updateStatus();
+            presentScenario();
+        }
+
+        function updateStatus() {
+            document.getElementById('status').innerHTML = `
+                Year: ${gameState.year} | ${gameState.playerName}'s Age: ${gameState.playerAge} | Food: ${gameState.food.toFixed(1)} | 
+                Shelter: ${gameState.shelter.toFixed(1)} | Population: ${gameState.population} | 
+                Morale: ${gameState.morale.toFixed(1)} | Technology: ${gameState.technology.toFixed(1)} | 
+                Children: ${gameState.children.length} | Pets: ${gameState.pets.length} | Trees: ${gameState.trees}
+            `;
+        }
+
+        function displayMessage(message) {
+            document.getElementById('output').innerHTML += `<p>${message}</p>`;
+            document.getElementById('output').scrollTop = document.getElementById('output').scrollHeight;
+        }
+
+        function displayChatMessage(message) {
+            document.getElementById('chatOutput').innerHTML += `<p>${message}</p>`;
+            document.getElementById('chatOutput').scrollTop = document.getElementById('chatOutput').scrollHeight;
+        }
+
+        function createChoices(options) {
+            const choicesDiv = document.getElementById('choices');
+            choicesDiv.innerHTML = '';
+            options.forEach(opt => {
+                const button = document.createElement('button');
+                button.textContent = opt.text;
+                button.onclick = opt.action;
+                choicesDiv.appendChild(button);
+            });
+        }
+
+        function gameOver() {
+            displayMessage("Game Over: Civilization has collapsed.");
+            document.getElementById('choices').innerHTML = '';
+            gameState.isAlive = false;
+        }
+
+        function agePlayer() {
+            gameState.day++;
+            if (gameState.day % 365 === 0) {
+                gameState.year++;
+                gameState.playerAge++;
+                gameState.children.forEach(child => child.age++);
+                if (gameState.playerAge >= 100) {
+                    transitionToChild();
+                    return;
+                }
+            }
+            gameState.food -= gameState.population * 0.005;
+            gameState.morale -= Math.random() * 0.01;
+            if (gameState.food <= 0) {
+                gameState.morale -= 0.05;
+                displayMessage("Starvation! Morale drops.");
+            }
+            if (gameState.shelter < gameState.population * 5) {
+                gameState.morale -= 0.03;
+                displayMessage("Lack of shelter lowers morale.");
+            }
+            if (gameState.morale <= 0 || gameState.food <= -50) {
+                gameOver();
+                return;
+            }
+            if (Math.random() < 0.002 && gameState.children.length < 20) {
+                const mother = gameState.islandDiscovered && Math.random() < 0.5 
+                    ? islandWomen[Math.floor(Math.random() * islandWomen.length)] 
+                    : initialCompanions[Math.floor(Math.random() * initialCompanions.length)];
+                const child = {
+                    name: `Child${gameState.children.length + 1}`,
+                    trait: mother.power || mother.trait,
+                    age: 0
+                };
+                gameState.children.push(child);
+                gameState.population++;
+                displayMessage(`${mother.name} has given birth to ${child.name}, inheriting ${child.trait}!`);
+            }
+            updateStatus();
+            presentScenario();
+        }
+
+        function transitionToChild() {
+            if (gameState.children.length === 0) {
+                gameOver();
+                displayMessage(`${gameState.playerName} has died with no heirs. The legacy ends.`);
+                return;
+            }
+            const heir = gameState.children[Math.floor(Math.random() * gameState.children.length)];
+            gameState.playerName = heir.name;
+            gameState.playerAge = heir.age;
+            gameState.playerTrait = heir.trait;
+            gameState.children = gameState.children.filter(c => c !== heir);
+            gameState.population--;
+            displayMessage(`${gameState.playerName} has died at 100. You now play as ${heir.name}, a ${heir.trait} heir.`);
+            updateStatus();
+            presentScenario();
+        }
+
+        function discoverIsland() {
+            if (!gameState.islandDiscovered && Math.random() < 0.1 && gameState.year > 2) {
+                gameState.islandDiscovered = true;
+                displayMessage("A mystical island appears! Women with extraordinary powers join you, seeking to bear children.");
+                islandWomen.forEach(w => {
+                    if (w.name !== gameState.playerName) {
+                        displayMessage(`${w.name} (${w.power}): ${w.desc}`);
+                    }
+                });
+                gameState.population += islandWomen.filter(w => w.name !== gameState.playerName).length;
+            }
+        }
+
+        function handleChat() {
+            const input = document.getElementById('chatInput').value;
+            if (input.trim()) {
+                displayChatMessage(`${gameState.playerName} (${gameState.playerTrait}): ${input}`);
+                const chatPool = [...initialCompanions, ...(gameState.islandDiscovered ? islandWomen : [])].filter(c => c.name !== gameState.playerName);
+                if (gameState.playerGender === 'female') {
+                    chatPool.push({ name: "Last Man", trait: "Leader" });
+                }
+                const responder = chatPool[Math.floor(Math.random() * chatPool.length)];
+                const responses = [
+                    `${responder.name}: We're low on food, any ideas?`,
+                    `${responder.name}: I saw a ${monsters[0].name} nearby. Be careful!`,
+                    `${responder.name}: Let's work together to rebuild stronger.`
+                ];
+                setTimeout(() => {
+                    displayChatMessage(responses[Math.floor(Math.random() * responses.length)]);
+                }, 1000);
+                document.getElementById('chatInput').value = '';
+            }
+        }
+
+        document.getElementById('chatSend').addEventListener('click', handleChat);
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleChat();
+        });
+
+        function presentScenario() {
+            if (!gameState.isAlive) return;
+            discoverIsland();
+            const scenarios = [
+                {
+                    text: `${initialCompanions[0].name === gameState.playerName ? "You" : initialCompanions[0].name} suggest${initialCompanions[0].name === gameState.playerName ? "" : "s"} searching for food in the ruins.`,
+                    choices: [
+                        { text: "Gather food", action: () => {
+                            gameState.food += 20 + Math.random() * 20;
+                            displayMessage(`${initialCompanions[0].name === gameState.playerName ? "You" : initialCompanions[0].name} found food in the ruins!`);
+                            agePlayer();
+                        }},
+                        { text: "Build shelter", action: () => {
+                            gameState.shelter += 20;
+                            displayMessage(`${initialCompanions[2].name === gameState.playerName ? "You" : initialCompanions[2].name} leads shelter construction.`);
+                            agePlayer();
+                        }}
+                    ]
+                },
+                {
+                    text: `${initialCompanions[4].name === gameState.playerName ? "You" : initialCompanions[4].name} propose${initialCompanions[4].name === gameState.playerName ? "" : "s"} organizing a council to boost morale.`,
+                    choices: [
+                        { text: "Form the council", action: () => {
+                            gameState.morale += 15;
+                            displayMessage("The council inspires hope!");
+                            agePlayer();
+                        }},
+                        { text: "Hunt for food", action: () => {
+                            gameState.food += 15 + Math.random() * 15;
+                            displayMessage(`${initialCompanions[9].name === gameState.playerName ? "You" : initialCompanions[9].name} hunts successfully.`);
+                            agePlayer();
+                        }}
+                    ]
+                },
+                {
+                    text: `${superheroAnimals[0].name} spots a fertile valley with ancient trees.`,
+                    choices: [
+                        { text: "Explore the valley", action: () => {
+                            gameState.trees += 5;
+                            gameState.exploredAreas.push("Valley");
+                            displayMessage(`You gain trees and discover ${hybridAnimals[0].name}! It joins as a pet.`);
+                            gameState.pets.push(hybridAnimals[0]);
+                            agePlayer();
+                        }},
+                        { text: "Fortify settlement", action: () => {
+                            gameState.shelter += 15;
+                            displayMessage(`${initialCompanions[2].name === gameState.playerName ? "You" : initialCompanions[2].name} strengthens defenses.`);
+                            agePlayer();
+                        }}
+                    ]
+                },
+                {
+                    text: `A ${monsters[0].name} threatens the settlement!`,
+                    choices: [
+                        { text: `Use ${superheroAnimals[1].name} to fight`, action: () => {
+                            if (Math.random() < 0.7) {
+                                displayMessage(`${superheroAnimals[1].name} defeats the ${monsters[0].name}!`);
+                                gameState.morale += 10;
+                            } else {
+                                displayMessage(`The ${monsters[0].name} causes damage!`);
+                                gameState.shelter -= 10;
+                                gameState.morale -= 5;
+                            }
+                            agePlayer();
+                        }},
+                        { text: "Hide and avoid conflict", action: () => {
+                            displayMessage("You avoid the monster, but morale dips.");
+                            gameState.morale -= 5;
+                            agePlayer();
+                        }}
+                    ]
+                },
+                ...(gameState.islandDiscovered ? [{
+                    text: `${islandWomen[0].name === gameState.playerName ? "You" : islandWomen[0].name} offer${islandWomen[0].name === gameState.playerName ? "" : "s"} to use ${islandWomen[0].name === gameState.playerName ? "your" : "her"} elemental powers to aid the settlement.`,
+                    choices: [
+                        { text: "Use powers for food", action: () => {
+                            gameState.food += 30;
+                            displayMessage(`${islandWomen[0].name === gameState.playerName ? "You" : islandWomen[0].name} summon${islandWomen[0].name === gameState.playerName ? "" : "s"} water to irrigate crops!`);
+                            agePlayer();
+                        }},
+                        { text: "Use powers for shelter", action: () => {
+                            gameState.shelter += 25;
+                            displayMessage(`${islandWomen[0].name === gameState.playerName ? "You" : islandWomen[0].name} shape${islandWomen[0].name === gameState.playerName ? "" : "s"} wind to aid construction!`);
+                            agePlayer();
+                        }}
+                    ]
+                }] : []),
+                ...(gameState.pets.length > 0 ? [{
+                    text: `Your pet ${gameState.pets[0].name} senses a hidden grove.`,
+                    choices: [
+                        { text: "Follow the pet", action: () => {
+                            gameState.trees += 3;
+                            gameState.food += 10;
+                            displayMessage(`${gameState.pets[0].name} leads you to a grove with fruit trees!`);
+                            agePlayer();
+                        }},
+                        { text: "Focus on technology", action: () => {
+                            gameState.technology += 10;
+                            displayMessage(`${initialCompanions[7].name === gameState.playerName ? "You" : initialCompanions[7].name} improve${initialCompanions[7].name === gameState.playerName ? "" : "s"} tools.`);
+                            agePlayer();
+                        }}
+                    ]
+                }] : [])
+            ];
+            const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
+            displayMessage(scenario.text);
+            createChoices(scenario.choices);
+        }
+
+        // Initialize game
+        displayMessage("The world lies in ruins. Choose your role to begin your adventure.");
+    </script>
+</body>
+</html>
